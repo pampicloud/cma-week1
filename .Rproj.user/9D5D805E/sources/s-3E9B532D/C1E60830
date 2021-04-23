@@ -3,7 +3,7 @@
     "path": "~/Desktop/zhaw/week2/assignment_2.Rmd",
     "project_path": "assignment_2.Rmd",
     "type": "r_markdown",
-    "hash": "4200614556",
+    "hash": "2903767389",
     "contents": "",
     "dirty": false,
     "created": 1619186043201.0,
@@ -12,15 +12,15 @@
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "117,0",
-        "scrollLine": "101"
+        "cursorPosition": "130,72",
+        "scrollLine": "116"
     },
     "folds": "",
-    "lastKnownWriteTime": 1619188588,
+    "lastKnownWriteTime": 1619189418,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1619188588009,
+    "last_content_update": 1619189418426,
     "read_only": false,
     "read_only_alternatives": []
 }

@@ -1,6 +1,0 @@
-"0","print(paste(""There are"", length(unique(wildschwein_BE$TierID)),"" individuals tracked!""))
-"
-"1","[1]"
-"1"," ""There are 3  individuals tracked!"""
-"1","
-"
