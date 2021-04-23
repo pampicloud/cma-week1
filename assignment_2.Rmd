@@ -55,33 +55,100 @@ pkgTest <- function(x)
   }
 }
 
-pkgTest("igraph")
-pkgTest("knitr")
-pkgTest("tidygraph")
-pkgTest("leaflet")
+pkgTest("readr")
+pkgTest("dplyr")
+pkgTest("ggplot2")
 pkgTest("tidyverse")
 pkgTest("sf")
-pkgTest("osrm")
-pkgTest("ggplot2")
-pkgTest("nngeo")
+pkgTest("terra")
+pkgTest("zoo")
+pkgTest("lubridate")
 
 
-# Set directories with here(), assuming you have a self-contained project.
-# That is, everything in one folder, with a "data" and a "figs" directory etc.
-# Why using here() is better than getwd(), see here:
-# https://www.tidyverse.org/articles/2017/12/workflow-vs-script/
 dataFolder   <- here::here("data")   # Data folder
 RFolder      <- here::here()         # RScript folder (i.e. where project file resides)
 figureFolder <- here::here("figs")   # Figure folder
 
 
-# Projection strings for the Swiss LV03 & LV95 CRS and WGS84 CRS, respectively
-WGS84 <- "+init=epsg:4326"
-LV03 <- "+init=epsg:21781"
-LV95 <- "+init=epsg:2056"
+```
+
+
+
+## Set up data
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Load data.
+wildschwein_BE <- read_delim("https://raw.githubusercontent.com/ComputationalMovementAnalysis/FS21/master/00_Rawdata/wildschwein_BE.csv", delim=",")
+
+wildschwein_BE = st_as_sf(wildschwein_BE, 
+                          coords = c("Long", "Lat"), 
+                          crs = 4326)
+
+wildschwein_BE <- st_transform(wildschwein_BE, 2056)
+
+
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+
+
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
 
 
 ```
+
+
+## Task 1: Getting an overview
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+#'* Calculate the time difference *
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
+
+#'* How many individuals were tracked? *
+
+print(paste("There are", length(unique(wildschwein_BE$TierID))," individuals tracked!"))
+
+
+
+```
+
+
+
+## overview
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+
+
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
+
+summary(wildschwein_BE$timelag)
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+##      12     896     903    1408     916   60367       3
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## Read Data
