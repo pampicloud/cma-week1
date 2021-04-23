@@ -1,0 +1,776 @@
+---
+title: "GEO 872 - Data Challenge 2 - Assignment"
+author: "Oliver Eberli"
+date: "29 11 2019"
+output:
+  html_document:
+    code_folding: show
+    fig_caption: yes
+    highlight: tango
+    number_sections: no
+    theme: journal
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+### MOASIS Data Exploration
+
+# Set up project
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+# **Task 1**: Create a new R Project and new R Script, based on the templates you defined in the last exercise. Read the `ungulates_snp.csv` dataset and convert to a spatial data.frame object.
+
+# Settings
+
+# To start with a clean slate, use the interactive "Session > Restart R" and
+# "Session > Clear Workspace ..." menu options in RStudio, rather than rm(list=ls())
+# For reasons why not to use rm(list=ls()), see here:
+# https://www.tidyverse.org/articles/2017/12/workflow-vs-script/
+
+
+options(scipen=6)         # Display digits, not the scientific version
+options(digits.secs=6)    # Use milliseconds in Date/Time data types
+options(warning=FALSE)    # Don't show warnings
+par(mfrow=c(1,1))         # Reset plot placement to normal 1 by 1
+
+# ------------------------------------------------------------------------------
+# packages:
+
+## Default repository
+local({r <- getOption("repos")
+r["CRAN"] <- "http://cran.r-project.org" 
+options(repos=r)
+})
+
+pkgTest <- function(x)
+{
+  if (!require(x,character.only = TRUE))
+  {
+    install.packages(x,dep=TRUE)
+    if(!require(x,character.only = TRUE)) stop("Package not found")
+  }
+}
+
+pkgTest("readr")
+pkgTest("dplyr")
+pkgTest("ggplot2")
+pkgTest("tidyverse")
+pkgTest("sf")
+pkgTest("terra")
+pkgTest("zoo")
+pkgTest("lubridate")
+
+
+dataFolder   <- here::here("data")   # Data folder
+RFolder      <- here::here()         # RScript folder (i.e. where project file resides)
+figureFolder <- here::here("figs")   # Figure folder
+
+
+```
+
+
+
+## Set up data
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Load data.
+wildschwein_BE <- read_delim("https://raw.githubusercontent.com/ComputationalMovementAnalysis/FS21/master/00_Rawdata/wildschwein_BE.csv", delim=",")
+
+wildschwein_BE = st_as_sf(wildschwein_BE, 
+                          coords = c("Long", "Lat"), 
+                          crs = 4326)
+
+wildschwein_BE <- st_transform(wildschwein_BE, 2056)
+
+
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+
+
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
+
+
+```
+
+
+## Task 1: Getting an overview
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+#'* Calculate the time difference *
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
+
+#'* How many individuals were tracked? *
+
+print(paste("There are", length(unique(wildschwein_BE$TierID))," individuals tracked!"))
+
+
+
+```
+
+
+
+## overview
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+
+
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
+
+summary(wildschwein_BE$timelag)
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+##      12     896     903    1408     916   60367       3
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Read Data
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Load data.
+zh_public_transport_network <- readRDS("data/zh_public_transport.RDS")
+publicodSF <- zh_public_transport_network %>% activate(edges) %>% as_tibble() %>% st_as_sf()
+
+
+pal <- colorFactor(topo.colors(3), zh_public_transport_network$type)
+
+# Plot the leaflet map
+leaflet() %>% 
+  addProviderTiles("Esri.WorldTopoMap", group = "Terrain")  %>% 
+  
+  # Add edges
+  addPolylines(data = zh_public_transport_network %>% 
+                    activate (edges) %>% 
+                    as_tibble() %>%
+                    st_as_sf(),
+                    color = ~pal(type)) %>% 
+  addCircleMarkers(data=zh_public_transport_network %>% 
+                     activate(vertices) %>% 
+                     as_tibble() %>%
+                     st_as_sf(),
+                   radius=~ifelse(id > 7, 2, 2),
+                   color = "gray60", stroke = FALSE, 
+                   fillOpacity = 0.8) %>%
+  addLegend("bottomright", pal = pal, 
+            values = zh_public_transport_network %>% 
+              activate (edges) %>% 
+              as_tibble() %>%
+              select("type") %>%
+              pull(),
+    title = "Public transport, Zurich",
+    opacity = 1)
+
+
+```
+## Mean occupancy
+Where are the busiest edges in terms of mean occupancy? Which are the edges with the longest delays?
+
+First we take a look on the occupancy. The occupancy clearly increase around the central station which is due to commuter traffic. Many commuters take public transport to get to work.
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Define a color palette 
+pal <- colorNumeric(
+  palette = "YlGnBu",
+  domain = zh_public_transport_network %>% 
+    activate (edges) %>% 
+    as_tibble() %>%
+    select("occupancy") %>%
+    pull())
+
+# Plot the leaflet map
+leaflet() %>% 
+  addProviderTiles("Esri.WorldTopoMap", group = "Terrain")  %>% 
+  
+  # Add edges
+  addPolylines(data = zh_public_transport_network %>% 
+                    activate (edges) %>% 
+                    as_tibble() %>%
+                    st_as_sf(),
+                    color = ~pal(occupancy)) %>% 
+  addCircleMarkers(data=zh_public_transport_network %>% 
+                     activate(vertices) %>% 
+                     as_tibble() %>%
+                     st_as_sf(),
+                   radius=~ifelse(id > 7, 2, 2),
+                   color = "gray60", stroke = FALSE, 
+                   fillOpacity = 0.8) %>%
+  addLegend("bottomright", pal = pal, 
+            values = zh_public_transport_network %>% 
+              activate (edges) %>% 
+              as_tibble() %>%
+              select("occupancy") %>%
+              pull(),
+    title = " Mean occupancy",
+    opacity = 1)
+
+
+```
+
+## Join data to the network
+We calculate the travel times and the average delay from the dataset and join the results to the network.
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+# read the data
+
+travel_times <- read.csv("data/fahrzeiten_soll_ist_20170101_20170107.csv",
+                         encoding = "UTF-8", sep = ",",
+                         stringsAsFactors = FALSE)
+
+# Keep only the columns we need and rename these.
+travel_times <- travel_times %>%
+  select(c(1, 9, 13, 14, 18, 20, 21))
+
+names(travel_times) <- c("line_name", "from_short_name",  "departure_sched",
+                         "departure_actual", "to_short_name",
+                         "arrival_sched", "arrival_actual")
+
+# Compute the scheduled and actual travel times
+travel_times$scheduled_tt <- travel_times$arrival_sched - travel_times$departure_sched
+travel_times$actual_tt <- travel_times$arrival_actual- travel_times$departure_actual
+
+# Exclude entries with negative travel times (these result from overnight journeys)
+travel_times <- travel_times[travel_times$scheduled_tt > 0, ]
+travel_times <- travel_times[travel_times$actual_tt > 0, ]
+
+# Compute the delays
+travel_times$delays <- travel_times$actual_tt - travel_times$scheduled_tt
+
+delayed_travel_times <- travel_times
+
+# Summarise the dataframe such that for each combination of line name,
+# from and to station the mean is computed
+
+delayed_travel_times <- plyr::ddply(delayed_travel_times, # dataframe to be processed
+                     .variables = c("line_name",
+                                    "from_short_name",
+                                    "to_short_name"),
+                     .fun = summarise,
+                     mean_delays=mean(delays))
+
+# Exclude entries with a travel times higher then two minutes
+delayed_travel_times <- delayed_travel_times[delayed_travel_times$mean_delays > 0, ]
+
+# Remove all travel times that are NA
+delayed_travel_times <- delayed_travel_times %>%
+  drop_na(mean_delays)
+
+# Join the travel times to the edges int the network
+zh_public_transport_network_delayed <- zh_public_transport_network %>%
+  activate(edges) %>%
+  inner_join(delayed_travel_times, by = c("from_short_name", "to_short_name", "line_name"))
+
+
+```
+
+## delays vs occupancy 
+We look on the edges with the longest delays. These delays are piling up on the edge of the city. If you add the occupancy as an overlay, it showes that a high occupancy does not necessarily increase delays. 
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+
+# Define a color palette
+pal <- colorNumeric(
+  palette = "YlOrRd",
+  domain = zh_public_transport_network_delayed %>%
+    activate (edges) %>%
+    as_tibble() %>%
+    select("mean_delays") %>%
+    pull())
+
+# Define a color palette 
+pal2 <- colorNumeric(
+  palette = "YlGnBu",
+  domain = zh_public_transport_network %>% 
+    activate (edges) %>% 
+    as_tibble() %>%
+    select("occupancy") %>%
+    pull())
+
+# Plot the leaflet map
+leaflet() %>%
+  addProviderTiles("Esri.WorldTopoMap", group = "Terrain")  %>%
+
+  # Add edges
+  addPolylines(data = zh_public_transport_network %>% 
+                 activate (edges) %>% 
+                 as_tibble() %>%
+                 st_as_sf(),
+                 color = ~pal2(occupancy),
+                 group = "occupancy") %>% 
+  addPolylines(data = zh_public_transport_network_delayed %>%
+                 activate (edges) %>%
+                 as_tibble() %>%
+                 st_as_sf(),
+                 color = ~pal(mean_delays),
+                 group = "delayed") %>%
+
+  addCircleMarkers(data=zh_public_transport_network_delayed %>%
+                     activate(vertices) %>%
+                     as_tibble() %>%
+                     st_as_sf(),
+                   radius=~ifelse(id > 7, 2, 2),
+                   color = "gray60", stroke = FALSE,
+                   fillOpacity = 0.8,
+                   group = "delayed") %>%
+    addCircleMarkers(data=zh_public_transport_network %>% 
+                     activate(vertices) %>% 
+                     as_tibble() %>%
+                     st_as_sf(),
+                   radius=~ifelse(id > 7, 2, 2),
+                   color = "gray60", stroke = FALSE, 
+                   fillOpacity = 0.8,
+                   group = "occupancy") %>%
+  addLegend("bottomleft", pal = pal,
+            values = zh_public_transport_network_delayed %>%
+              activate (edges) %>%
+              as_tibble() %>%
+              select("mean_delays") %>%
+              pull(),
+              group = "delayed",
+              title = " Mean Delays [s]",
+              opacity = 1) %>%
+    addLegend("bottomleft", pal = pal2, 
+            values = zh_public_transport_network %>% 
+              activate (edges) %>% 
+              as_tibble() %>%
+              select("occupancy") %>%
+              pull(),
+              group = "occupancy",
+    title = " Mean occupancy",
+    opacity = 1) %>%
+  
+  addLayersControl(overlayGroups = c("occupancy", "delayed"),
+                     options = layersControlOptions(collapsed = FALSE)
+  )
+
+
+
+
+```
+
+
+
+
+
+
+
+## Table occupancy and delays
+
+Top 10 occupancy: All of the top 10 occupancy are of the typ tram. 
+Top 10 delayed: Bus number 67 has the most delays as well as a lot of trollys. 
+
+
+```{r, eval=TRUE, echo=TRUE, fig.height = 9, warning=FALSE, message=FALSE}
+
+
+publicSF <- zh_public_transport_network_delayed %>% activate(edges) %>% as_tibble() %>% st_as_sf()
+
+
+top_occupancy <- publicSF %>%
+  arrange(desc(occupancy)) %>%
+  slice(1:10) %>%
+  st_drop_geometry()
+top_occupancy <- top_occupancy[c(3,4,5,7,13)]
+
+top_delayed <- publicSF %>%
+  arrange(desc(mean_delays)) %>%
+  slice(1:10) %>%
+  st_drop_geometry()
+
+top_delayed <- top_delayed[c(3,4,5,7,14)]
+
+kable(top_occupancy)
+kable(top_delayed)
+
+
+
+```
+
+
+
+# Task 2: Street festival location
+
+The city aims to minimize the negative influence of the street festival on public transport. 
+ 
+The connectivity of the edge Opernhaus - Kreuzstrasse is smaller than BURK-BELL. The BURK-BELL edge has a greater centrality. Five trams drive over the edge of Bellevue - Bürkliplatz. OPER-KRES is only used by two trams. My recommendation is to hold the street festival between Opera House and Kreuzstrasse.
+
+## Vertex connectivity
+We compute the vertex_connectivity between the source Bahnhofplatz/HB (BPLA) and the target Bellvue (BELL). The result (3) shows that there is another way to the Bellvue, than the Quaibrücke. Public traffic is limited.
+
+
+We compute the vertex_connectivity between the source Bahnhofplatz/HB (BPLA) and the target Kreuzstrasse (KRES). The result (2) means that you only have to destroy two edges to interrupt all tram traffic from e.g. Opernhaus to Chinagarden.
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+
+zh_public_transport_network <- readRDS("data/zh_public_transport.RDS")
+
+
+# Vertex connectivity
+
+
+bahn <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  filter(short_name == "BPLA") %>%
+  pull(id)
+
+bellvue <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  filter(short_name == "BELL") %>%
+  pull(id)
+
+
+bahnh <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  filter(short_name == "BPLA") %>%
+  pull(id)
+
+oper <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  filter(short_name == "KRES") %>%
+  pull(id)
+
+vconn <- vertex_connectivity(zh_public_transport_network, source = bahn, target = bellvue)
+vconn2 <- vertex_connectivity(zh_public_transport_network, source = bahnh, target = oper)
+vconn
+
+
+
+vconn2
+
+
+
+# Compute the betweenness centrality
+zh_public_transport_network <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  mutate(btw = betweenness(zh_public_transport_network, normalized = TRUE))
+
+```
+
+## used by
+
+
+
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+buerklibell <- filter(publicodSF, from_short_name == "BELL", to_short_name == "BURK")
+buerklibell <- buerklibell %>%
+  st_drop_geometry()
+buerklibell <- buerklibell[c(3,4,5,7)]
+
+operkreuz <- filter(publicodSF, from_short_name == "OPER", to_short_name == "KRES")
+operkreuz <- operkreuz %>%
+  st_drop_geometry()
+operkreuz <- operkreuz[c(3,4,5,7)]
+
+kable(buerklibell)
+kable(operkreuz)
+
+```
+
+
+## Betweenness centrality
+The nodes Bürkliplatz and Bellvue have a medium betweenness centrality. The nodes Opernhaus and Kreuzstrasse have a low betweenness centrality and are not as much important to the network as others.
+
+
+```{r, eval=TRUE, echo=TRUE, fig.height = 9, warning=FALSE, message=FALSE}
+
+# Plot betweenness centrality
+ggplot() +
+  # Plot the entire network
+  geom_sf(data = zh_public_transport_network %>% activate(edges) %>% as_tibble() %>% st_as_sf(),
+          col = 'darkgrey') +
+  geom_sf(data = zh_public_transport_network %>% activate(nodes) %>% as_tibble() %>% st_as_sf(),
+          aes(size=btw)) +
+
+  # Remove axis titles and legend
+  theme(axis.title=element_blank(),
+        legend.position = "none")
+
+
+```
+
+
+
+# Task 3: Going to Züla
+
+## shortest paths
+
+Since the farmers are busy people with no time to waste, they aim to minimize the travel time to the
+fair. We calculate the shortest path for each route and visualize them.
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Load the public transport network
+public_transport <- readRDS("data/zh_public_transport.RDS")
+
+
+# Delete edges where the scheduled travel times are NA 
+public_transport <- delete.edges(public_transport, 
+                             which(is.na(E(public_transport )$scheduled_tt))) %>% as_tbl_graph()
+
+# Add vertex id to vertex table
+public_transport <- public_transport %>% 
+  activate(nodes) %>%
+  mutate(id = V(public_transport))
+
+# Retrieve vertex ID for Zürich, Bahnhofsplatz ...
+from_vertex <- public_transport %>%
+  activate(nodes) %>%
+  filter(short_name == "BPLA") %>%
+  pull(id)
+
+# ... and Messe/Hallenstadion
+to_vertex <- public_transport %>%
+  activate(nodes) %>%
+  filter(short_name == "MEHA") %>%
+  pull(id)
+
+# Compute the shortest path
+hb_to_messe_path <- shortest_paths(
+  graph = public_transport,
+  from = from_vertex,
+  to = to_vertex,
+  output = 'both',
+  weights = public_transport %>% activate(edges) %>% pull(scheduled_tt))
+
+# Turn path to subgraph
+path_graph <- public_transport %>%
+    subgraph.edges(eids = hb_to_messe_path$epath %>% unlist()) %>%
+    as_tbl_graph()
+
+# Retrieve vertex ID for Zürich, Bahnhofsplatz ...
+from_vertex_2 <- public_transport %>%
+  activate(nodes) %>%
+  filter(short_name == "BOER") %>%
+  pull(id)
+
+# ... and Messe/Hallenstadion
+to_vertex_2 <- public_transport %>%
+  activate(nodes) %>%
+  filter(short_name == "MEHA") %>%
+  pull(id)
+
+# Compute the shortest path
+oer_to_messe_path <- shortest_paths(
+  graph = public_transport,
+  from = from_vertex_2,
+  to = to_vertex_2,
+  output = 'both',
+  weights = public_transport %>% activate(edges) %>% pull(scheduled_tt))
+
+# Turn path to subgraph
+path_graph_2 <- public_transport %>%
+    subgraph.edges(eids = oer_to_messe_path$epath %>% unlist()) %>%
+    as_tbl_graph()
+
+# Retrieve vertex ID for Zürich, Bahnhofsplatz ...
+from_vertex_3 <- public_transport %>%
+  activate(nodes) %>%
+  filter(short_name == "BSTE") %>%
+  pull(id)
+
+# ... and Messe/Hallenstadion
+to_vertex_3 <- public_transport %>%
+  activate(nodes) %>%
+  filter(short_name == "MEHA") %>%
+  pull(id)
+
+# Compute the shortest path
+stett_to_messe_path <- shortest_paths(
+  graph = public_transport,
+  from = from_vertex_3,
+  to = to_vertex_3,
+  output = 'both',
+  weights = public_transport %>% activate(edges) %>% pull(scheduled_tt))
+
+# Turn path to subgraph
+path_graph_3 <- public_transport %>%
+    subgraph.edges(eids = stett_to_messe_path$epath %>% unlist()) %>%
+    as_tbl_graph()
+
+# Plot the network 
+ggplot() +
+  # Plot the entire network
+  geom_sf(data = public_transport %>% activate(edges) %>% as_tibble() %>% st_as_sf(), 
+          col = 'darkgrey') +
+  geom_sf(data = public_transport %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+          col = 'darkgrey', size = 0.5) +
+  
+  # Add the shortest path graph as an overlay
+  geom_sf(data = path_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), 
+          lwd = 1, col = 'red') + 
+  geom_sf(data = path_graph %>% activate(nodes) %>% filter(id %in% c(from_vertex, to_vertex)) 
+          %>% as_tibble() %>% st_as_sf(), size = 1, col = 'black') +
+  geom_sf(data = path_graph_2 %>% activate(edges) %>% as_tibble() %>% st_as_sf(), 
+          lwd = 1, col = 'blue') + 
+  geom_sf(data = path_graph_2 %>% activate(nodes) %>% filter(id %in% c(from_vertex_2, to_vertex_2)) 
+          %>% as_tibble() %>% st_as_sf(), size = 1, col = 'black') +
+  geom_sf(data = path_graph_3 %>% activate(edges) %>% as_tibble() %>% st_as_sf(), 
+          lwd = 1, col = 'green') + 
+  geom_sf(data = path_graph_3 %>% activate(nodes) %>% filter(id %in% c(from_vertex_3, to_vertex_3)) 
+          %>% as_tibble() %>% st_as_sf(), size = 1, col = 'black') +
+  
+  # Add labels for the origin and destination
+  geom_sf_text(data = path_graph %>% activate(nodes) %>% filter(id %in% c(from_vertex, to_vertex)) 
+          %>% as_tibble() %>% st_as_sf(), aes(label = long_name), nudge_x=0.04, nudge_y=0.005, size=3) + 
+  geom_sf_text(data = path_graph_2 %>% activate(nodes) %>% filter(id %in% c(from_vertex_2)) 
+          %>% as_tibble() %>% st_as_sf(), aes(label = long_name),nudge_x=-0.04, size=3) +
+  geom_sf_text(data = path_graph_3 %>% activate(nodes) %>% filter(id %in% c(from_vertex_3)) 
+          %>% as_tibble() %>% st_as_sf(), aes(label = long_name), nudge_x=-0.015, nudge_y=-0.005, size=3) +
+  # Remove axis titles
+  theme(axis.title=element_blank())
+```
+
+
+
+## Which edges will be most crowded
+
+With epath we can print all used edges. For route A and B, the last two edges (47->302 302->222) are the same. If all 500 farmers arrive at the same time, it will be overcrowded. 
+
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+hb_to_messe_path$epath
+oer_to_messe_path$epath
+stett_to_messe_path$epath
+
+bahnhofoerlikon <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  filter(short_name == "BOER") %>%
+  pull(id)
+
+messe <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  filter(short_name == "MEHA") %>%
+  pull(id)
+
+vconn3 <- vertex_connectivity(zh_public_transport_network, source = bahnhofoerlikon, target = messe)
+vconn3
+
+
+```
+
+## Shortest paths with map-matching
+
+There is a chance that the farmers from the red and blue route meet at Oerlikon station. 
+This would cause way too many farmers for a tram. 
+Let's see if there is an alternative route for the farmers from the main station.
+I tried to calculate a route that is faster and does not go beyond Oerlikon station.
+Anyway, the last edge is still the same. 302 -> 222. But I think that the farmers from the station Oerlikon have already arrived at the Züla. 
+
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+
+# messe: 8.552048, 47.410739	
+# bahnhquai 8.541591, 47.378016 
+
+bahnhofquai <- st_point(c(8.541591, 47.378016 )) %>%
+  st_sfc(crs = 4326)
+
+messe <- st_point(c(8.552048, 47.410739)) %>%
+  st_sfc(crs = 4326)
+
+# Coordinates of all nodes in the network
+vertices_sf <- zh_public_transport_network %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  st_as_sf()
+
+# Find the id of the vertex closest to bahnhofquai ... 
+bahnhofquai_idx <- st_nn(bahnhofquai, vertices_sf, sparse=FALSE)[1, ]
+
+bahnhofquai_vertex <- vertices_sf %>% 
+  filter(bahnhofquai_idx) %>% 
+  pull(id)
+
+# ... and closest to messe
+messe_idx <- st_nn(messe, vertices_sf, sparse=FALSE)[1, ]
+
+messe_vertex <- vertices_sf %>% 
+  filter(messe_idx) %>% 
+  pull(id)
+# As before, we can now use the shortest_paths function to find the best route from bahnhofquai to messe in the tram network.
+
+# Compute the shortest path 
+messe_path <- shortest_paths(
+  graph = zh_public_transport_network,
+  from = bahnhofquai_vertex,
+  to = messe_vertex,
+  output = 'both',
+  weights = zh_public_transport_network %>% activate(edges) %>% pull(distance))
+
+# Turn the shortest path into a graph
+messe_graph <- zh_public_transport_network %>%
+    subgraph.edges(eids = messe_path$epath %>% unlist()) %>%
+    as_tbl_graph()
+# Again we use ggplot to visualize our results.
+
+ggplot() +
+  # Plot the entire network
+  geom_sf(data = zh_public_transport_network %>% activate(edges) %>% as_tibble() %>% st_as_sf(), 
+          col = 'darkgrey') +
+  geom_sf(data = zh_public_transport_network %>% activate(nodes) %>% as_tibble() %>% st_as_sf(), 
+          col = 'darkgrey', size = 0.5) +
+  
+  # Add the shortest path graph as an overlay
+  geom_sf(data = messe_graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), 
+          lwd = 1, col = 'red') + 
+  geom_sf(data = messe_graph %>% activate(nodes) %>% 
+            filter(id %in% c(bahnhofquai_vertex, messe_vertex)) 
+          %>% as_tibble() %>% st_as_sf(), size = 2, col = 'red') +
+  
+  # Add labels for the origin and destination
+  geom_sf_text(data = messe_graph %>% activate(nodes) %>% 
+                 filter(id %in% c(bahnhofquai_vertex, messe_vertex)) 
+          %>% as_tibble() %>% st_as_sf(), aes(label = long_name),  nudge_x=0.02, size=3) + 
+  # Remove axis titles
+  theme(axis.title=element_blank())
+
+
+
+messe_path$epath
+
+
+```
+
+
+
+
