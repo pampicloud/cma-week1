@@ -1,1 +1,0 @@
-{"frames":[{"func":"pkgTest(\"terra\")","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0},{"func":"stop(\"Package not found\")","file":"","line_number":6,"end_line_number":6,"character_number":5,"end_character_number":67}],"message":"Error in pkgTest(\"terra\") : Package not found\n"}
