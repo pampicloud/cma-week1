@@ -1,0 +1,261 @@
+---
+title: "ZHAW - Exercise 2 - Assignment"
+author: "Oliver Eberli"
+date: "04.05.2021"
+output:
+  html_document:
+    code_folding: show
+    fig_caption: yes
+    highlight: tango
+    number_sections: no
+    theme: journal
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+### Data Exploration
+
+# Set up project
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+#'* Write function to check if library is needed and set basic settings *
+#'* Use eye-friendly comment syntax *
+
+
+options(scipen=6)         # Display digits, not the scientific version
+options(digits.secs=6)    # Use milliseconds in Date/Time data types
+options(warning=FALSE)    # Don't show warnings
+par(mfrow=c(1,1))         # Reset plot placement to normal 1 by 1
+
+# ------------------------------------------------------------------------------
+# packages:
+
+## Default repository
+local({r <- getOption("repos")
+r["CRAN"] <- "http://cran.r-project.org" 
+options(repos=r)
+})
+
+pkgTest <- function(x)
+{
+  if (!require(x,character.only = TRUE))
+  {
+    install.packages(x,dep=TRUE)
+    if(!require(x,character.only = TRUE)) stop("Package not found")
+  }
+}
+
+pkgTest("readr")
+pkgTest("dplyr")
+pkgTest("ggplot2")
+pkgTest("tidyverse")
+pkgTest("sf")
+pkgTest("raster")
+pkgTest("zoo")
+pkgTest("lubridate")
+pkgTest("ggplot2")
+
+
+```
+
+
+
+## Set up data
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Load data.
+wildschwein_BE <- read_delim("https://raw.githubusercontent.com/ComputationalMovementAnalysis/FS21/master/00_Rawdata/wildschwein_BE_2056.csv", delim=",")
+
+wildschwein_BE = st_as_sf(wildschwein_BE, 
+                          coords = c('E', "N"), 
+                          crs = 2056, remove = FALSE)
+
+wildschwein_BE <- st_transform(wildschwein_BE, 2056)
+
+
+```
+
+
+## Task 1: Getting an overview
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+#'* Calculate the time difference *
+wildschwein_BE <- group_by(wildschwein_BE,TierID)
+wildschwein_BE <- mutate(wildschwein_BE,timelag = as.numeric(difftime(lead(DatetimeUTC),
+                                                                      DatetimeUTC,
+                                                                      units = "secs")))
+
+#'* How many individuals were tracked? *
+
+print(paste("There are", length(unique(wildschwein_BE$TierID))," individuals tracked!"))
+
+#'* For how long were the individual tracked? Are there gaps? *
+#'* We summarize the dataframe grouped by TierID. In the summary we can see over which time period the individuals were tracked. *
+
+wildschwein_BE %>%                     
+  st_set_geometry(NULL) %>%            
+  group_by(TierID) %>%                 
+  summarise(                           
+    sum_timelag = sum(timelag,na.rm = T),
+    min_date = min(DatetimeUTC),
+    max_date = max(DatetimeUTC)
+  )
+
+
+
+#'* Were all individuals tracked concurrently and sequentially *
+#'* To detect the gaps we visualize the data in a ggplot *
+
+#'* We plot each individual and can see the different gaps (timelags)*
+# We can see, that the individuals are tracked almost concurrently.
+# First sabi is tracked and after 3 days the other two individuals. 
+
+plotWild <- wildschwein_BE %>% 
+    ggplot(aes(x = DatetimeUTC,
+               y = timelag,
+               group = TierName))
+
+plotWild + geom_line(size = 0.2, color = 'pink') + 
+    geom_point(size = 0.5, color = 'steelblue3') +
+    facet_grid(TierName ~ .)
+
+
+```
+
+
+
+## Task 2: Deriving movement parameters I: Speed
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+
+
+for(i in 1:51245)(
+wildschwein_BE$steplength[i] <- pointDistance(c(wildschwein_BE$E[i], wildschwein_BE$N[i]),  c(wildschwein_BE$E[i+1], wildschwein_BE$N[i+1]), lonlat = FALSE, allpairs=FALSE)
+)
+
+
+#'* Now calculate the animals’ speed between subsequent locations based on steplength and the timelag (from the last task). *
+#'* What speed unit do you get?*
+
+# unit: meters per second
+
+wildschwein_BE$speed <- wildschwein_BE$steplength / wildschwein_BE$timelag
+
+
+```
+
+
+
+## Task 3: Cross-scale movement analysis
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+
+# Load data.
+caro <- read_delim("https://raw.githubusercontent.com/ComputationalMovementAnalysis/FS21/master/00_Rawdata/caro60.csv", delim=",")
+
+
+caro <- st_as_sf(caro, coords = c("E", "N"), crs = 2056, remove = FALSE)
+
+  
+caro_3 <- caro[seq(1, nrow(caro), 3),]
+caro_6 <- caro[seq(1, nrow(caro), 6),]
+caro_9 <- caro[seq(1, nrow(caro), 9),]
+
+caro <- mutate(caro,timelag = as.numeric(difftime(lead(DatetimeUTC), DatetimeUTC,units = "secs")))
+caro_3 <- mutate(caro_3,timelag = as.numeric(difftime(lead(DatetimeUTC), DatetimeUTC,units = "secs")))
+caro_6 <- mutate(caro_6,timelag = as.numeric(difftime(lead(DatetimeUTC), DatetimeUTC,units = "secs")))
+caro_9 <- mutate(caro_9,timelag = as.numeric(difftime(lead(DatetimeUTC), DatetimeUTC,units = "secs")))
+
+for(i in 1:200)(caro$steplength[i] <- pointDistance(c(caro$E[i], caro$N[i]),  c(caro$E[i+1], caro$N[i+1]), lonlat = FALSE, allpairs=FALSE))
+
+for(i in 1:67)(caro_3$steplength[i] <- pointDistance(c(caro_3$E[i], caro_3$N[i]),  c(caro_3$E[i+1], caro_3$N[i+1]), lonlat = FALSE, allpairs=FALSE))
+for(i in 1:34)(caro_6$steplength[i] <- pointDistance(c(caro_6$E[i], caro_6$N[i]),  c(caro_6$E[i+1], caro_6$N[i+1]), lonlat = FALSE, allpairs=FALSE))
+for(i in 1:23)(caro_9$steplength[i] <- pointDistance(c(caro_9$E[i], caro_9$N[i]),  c(caro_9$E[i+1], caro_9$N[i+1]), lonlat = FALSE, allpairs=FALSE))
+
+#'* Now calculate the animals’ speed between subsequent locations based on steplength and the timelag (from the last task). *
+#'* What speed unit do you get?*
+
+# unit: meters per second
+
+caro$speed <- caro$steplength / caro$timelag
+caro_3$speed <- caro_3$steplength / caro_3$timelag
+caro_6$speed <- caro_6$steplength / caro_6$timelag
+caro_9$speed <- caro_9$steplength / caro_9$timelag
+
+
+ggp3 <- ggplot(NULL, aes(E, N)) +    # Draw ggplot2 plot based on two data frames
+  geom_line(data = caro, col = "red") + geom_point(data = caro, col = "red") +
+  geom_line(data = caro_3, col = "blue") + geom_point(data = caro_3, col = "blue")
+ggp3 + ggtitle("Comparing original- with 3-minutes-resampled data") # Draw plot
+
+
+ggp6 <- ggplot(NULL, aes(E, N)) +    # Draw ggplot2 plot based on two data frames
+  geom_line(data = caro, col = "red") + geom_point(data = caro, col = "red") +
+  geom_line(data = caro_6, col = "blue") + geom_point(data = caro_6, col = "blue")
+ggp6 + ggtitle("Comparing original- with 6-minutes-resampled data") # Draw plot
+
+
+ggp9 <- ggplot(NULL, aes(E, N)) +    # Draw ggplot2 plot based on two data frames
+  geom_line(data = caro, col = "red") + geom_point(data = caro, col = "red") +
+  geom_line(data = caro_9, col = "blue") + geom_point(data = caro_9, col = "blue")
+ggp9 + ggtitle("Comparing original- with 9-minutes-resampled data") # Draw plot
+
+
+
+ggp9 <- ggplot(NULL, aes(E, N)) +    # Draw ggplot2 plot based on two data frames
+  geom_line(data = caro, col = "red") + geom_point(data = caro, col = "red") +
+  geom_line(data = caro_9, col = "blue") + geom_point(data = caro_9, col = "blue")
+ggp9 + ggtitle("Comparing original- with 9-minutes-resampled data") # Draw plot
+
+
+ggp_speed <- ggplot(NULL, aes(DatetimeUTC, speed)) +  
+  geom_line(data = caro, col = "red") +
+  geom_line(data = caro_3, col = "blue") +
+    geom_line(data = caro_6, col = "green") +
+    geom_line(data = caro_9, col = "orange")
+ggp_speed + ggtitle("Comparing derived speed at different sampling intervals")
+
+
+
+
+
+```
+
+
+## Task 4: Deriving movement paramters II: Rolling window functions
+
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE, message=FALSE}
+
+
+caro$rollmean3 <- rollmean(caro$speed, k = 3, fill = NA, align = "left")
+caro$rollmean4 <- rollmean(caro$speed, k = 4, fill = NA, align = "left")
+caro$rollmean5 <- rollmean(caro$speed, k = 5, fill = NA, align = "left")
+caro$rollmean6 <- rollmean(caro$speed, k = 6, fill = NA, align = "left")
+
+#'* Pivoting longer: turning variables into rows *
+caro_rollmean_pivot <- caro %>%
+  pivot_longer(speed:rollmean6, names_to = "rollmean", values_to = "speed")
+
+ggp2 <- ggplot(caro_rollmean_pivot, 
+               aes(x = DatetimeUTC,
+                   y = speed,
+                   color = rollmean)) +
+  geom_line() +
+  theme_minimal()
+ggp2 + ggtitle("Deriving movement paramters II: Rolling window function")
+
+
+
+
+```
